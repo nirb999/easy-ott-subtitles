@@ -2,6 +2,9 @@
 OTT (DASH/HLS) automatic subtitles translator/transcriber.
 Suitable to VoD and Live OTT streams.
 
+It is basically a manifest manipulator for HLS and DASH. It adds subtitle(s) track(s) to the origin manifest according to the URL parameters (see instructions below).
+It allows very easy intergation: no changes to the origin stream are needed, work is done on-the-fly.
+
 Currently using Google Cloud Translation and Speech-to-Text APIs.
 
 * * *
@@ -89,5 +92,5 @@ http://127.0.0.1:8500/eos/v1/hls/vod/translate/en-US/aHR0cDovL3NhbXBsZS52b2RvYm9
 
 ## HTTPS Server and Caching
 This package is using python HTTP server.
-To make it suitable for production and enable HTTPS + caching for subtitle fragments, you can use Nginx with reverese proxy as the outbound HTTP server, and enable content caching.
+To make it suitable for production and enable HTTPS + caching for subtitle fragments, you can use Nginx with reverese proxy as the outbound HTTPS server, and enable content caching.
 
