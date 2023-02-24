@@ -40,7 +40,7 @@ PROJECT_ID = <project_id>
 SERVICE_ACCOUNT_FILE = google_key/<service_account_key_file_path>
 ```
 
-* Default port number is 8500
+* Default port number is 8500.
 This can be changed in ini file under HTTP_SERVER:
 ```bash
 [HTTP_SERVER]
