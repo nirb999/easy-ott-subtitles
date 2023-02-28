@@ -601,13 +601,14 @@ class HlsHandler(OttHandler, LiveDelayListener):
     #################################
     def set_default_langauge(self, default_lang: EosLanguage) -> None:
 
-        for text_veriant in self._text_variants:
-            if text_veriant.eos is True:
-                if 'LANGUAGE' in text_veriant.manifest_params.keys():
-                    if text_veriant.manifest_params['LANGUAGE'][1:-1] == default_lang.code_639_2():
-                        text_veriant.manifest_params['DEFAULT'] = 'YES'
-                    else:
-                        text_veriant.manifest_params['DEFAULT'] = 'NO'
+        if default_lang is not None:
+            for text_veriant in self._text_variants:
+                if text_veriant.eos is True:
+                    if 'LANGUAGE' in text_veriant.manifest_params.keys():
+                        if 'LANGUAGE' in text_veriant.manifest_params and text_veriant.manifest_params['LANGUAGE'][1:-1] == default_lang.code_639_2():
+                            text_veriant.manifest_params['DEFAULT'] = 'YES'
+                        else:
+                            text_veriant.manifest_params['DEFAULT'] = 'NO'
 
     #################################
     # build_manifest
