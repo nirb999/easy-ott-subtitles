@@ -60,7 +60,9 @@ $ python easy-ott-subtitles -c eos.ini
 ## URL Generation
 
 * To consturct a playout URL, use this formula:
+```bash
 http://<server_ip_address>:<server_port_number>/eos/v1/<dash/hls>/<vod/live>/<translate/transcribe>/<source_language>/<origin_stream_url_base64>/eos_manifest.<m3u8/mpd>?languages=<destination_languages>
+```
 
 ### Example
 
