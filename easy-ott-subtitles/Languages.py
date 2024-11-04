@@ -167,5 +167,11 @@ class EosLanguages(metaclass=Singleton):
 
             if language.code_bcp_47() == code:
                 return language
+            
+            if language.code_639_1() == code:
+                return language
+            
+            if language.code_639_2() == code:
+                return language
 
         return None

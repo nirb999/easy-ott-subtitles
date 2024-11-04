@@ -560,7 +560,7 @@ class GoogleCloudStreamingTranscribe(threading.Thread):
                                                              min_speaker_count=2,
                                                              max_speaker_count=6)
 
-#        phrases = ['ari taub', 'ari', 'taub', 'john nguyen', 'nguyen', 'Justin Basra', 'Justim', 'Basra', 'Nick Ring', 'Cory Devela', 'Devela']
+#        phrases = ['']
 #        speech_contexts = speech.SpeechContext(phrases=phrases)
 
         config = speech.RecognitionConfig(encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
