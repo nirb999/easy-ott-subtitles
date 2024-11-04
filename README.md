@@ -4,6 +4,7 @@ Suitable to VoD and Live OTT streams.
 
 It is basically a manifest manipulator for HLS and DASH. It adds subtitle(s) track(s) to the origin manifest according to the URL parameters (see instructions below).
 It allows very easy intergation: no changes to the origin stream are needed, work is done on-the-fly.
+Original Video/Audio/Text tracks are directed to the origin server. Only added text tracks are served from easy-ott-subtitles server.
 
 Currently using Google Cloud Translation and Speech-to-Text APIs.
 
