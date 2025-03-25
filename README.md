@@ -29,9 +29,11 @@ $ sudo apt-get install ffmpeg
 ```
 
 * For python 3.10, fix this in venv/lib/python3.10/site-packages/construct/core.py:
+```bash
 -import collections
 +#import collections
 +import collections.abc as collections
+```
 
 * * *
 
