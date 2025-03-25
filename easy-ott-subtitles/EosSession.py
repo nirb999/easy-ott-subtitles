@@ -506,6 +506,13 @@ class EosTranslateSession(EosSession):
 
         Utils.logger_.dump(str(self._session_id), "EosTranslateSession::prepare_subtitle_fragment reference_fragment_url={}".format(reference_fragment_url))
 
+        timestamp = reference_fragment_url[reference_fragment_url.rfind('=')+1:-1]
+        next_timestamp = None
+        if timestamp != "Init":
+            next_timestamp = str(int(timestamp) + 40000000)
+            reference_next_fragment_url = reference_fragment_url[:reference_fragment_url.rfind('=')+1] + next_timestamp + ")"
+            Utils.logger_.dump(str(self._session_id), "EosTranslateSession::prepare_subtitle_fragment reference_next_fragment_url={}".format(reference_next_fragment_url))
+
         try:
             headers = {'User-Agent': EosHttpConfig.user_agent}
             responses = requests.get(reference_fragment_url, headers=headers)
@@ -529,13 +536,34 @@ class EosTranslateSession(EosSession):
             response.error = error_str
             return response
 
+        next_original_fragment = None
+        if next_timestamp is not None:
+            try:
+                headers = {'User-Agent': EosHttpConfig.user_agent}
+                next_responses = requests.get(reference_next_fragment_url, headers=headers)
+
+                if next_responses.status_code == requests.codes.ok:
+
+                    next_original_fragment = next_responses.content
+                    Utils.logger_.dump(str(self._session_id), 'EosTranslateSession::prepare_subtitle_fragment next_original_fragment={}'.format(next_original_fragment))
+
+                else:
+                    error_str = "EosTranslateSession::prepare_subtitle_fragment error getting next fragment from server ({})".format(next_responses.status_code)
+                    Utils.logger_.error(str(self._session_id), error_str)
+                    next_original_fragment = None
+
+            except requests.ConnectionError:
+                error_str = "EosTranslateSession::prepare_subtitle_fragment Error connecting to server {}".format(reference_fragment_url)
+                Utils.logger_.error(str(self._session_id), error_str)
+                next_original_fragment = None
+
         dst_language = EosLanguages().find(request.dst_lang())
 
         response = EosSessionResponse()
         if self._ott_protocol == OttProtocols.DASH_PROTOCOL and request.dash_fragment_url().find("=Init") != -1:
             response.response = original_fragment
         else:
-            response.response = self._ott_handler.translate_subtitle_fragment(original_fragment, self._src_language, dst_language)
+            response.response = self._ott_handler.translate_subtitle_fragment(original_fragment, next_original_fragment, self._src_language, dst_language)
         response.content_type = responses.headers['Content-Type']
 
         return response
@@ -827,17 +855,18 @@ class EosTranscribeSession(EosSession):
 
         else:
             timestamp = request.dash_timestamp()
-            if timestamp == 'Init':
+            if timestamp.find("=Init") != -1:
                 subtitle_fragment = self._ott_handler.generate_init_fragment()
             else:
-                start_time = int(timestamp)
-                end_time = start_time + 4000
+                split_timestamp = timestamp.split("=")
+                start_time = int(timestamp.split("=")[1][:-1])
+                end_time = start_time + 40000000
 
                 subs: List[Dict[str, Any]] = self._transcribe_session.get_subs(request.dst_lang())
 
-                #print(subs)
+                #print("subs: ", subs)
                 #for sub in subs:
-                #    print(sub)
+                #    print("sub: ", sub)
 
                 subtitle_ttml = self._ott_handler.generate_subtitle_fragment(start_time, end_time, subs)
 

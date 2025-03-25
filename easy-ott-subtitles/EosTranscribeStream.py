@@ -434,7 +434,12 @@ class EosTranscribeStream(EosTranscribeStreamBase):
                 original_file.write(original_fragment)
 
             audio_file = original_file_name + '.aac'
-            Transcoder.transcoder_.extract_audio(original_file_name, audio_file)
+            if self._ott_protocol == OttProtocols.DASH_PROTOCOL:
+                dash_decoder = DashFragmentDecoder(original_file_name)
+                dash_decoder.read_aac(audio_file, fragment.sampling_rate)
+
+            if self._ott_protocol == OttProtocols.HLS_PROTOCOL:
+                Transcoder.transcoder_.extract_audio(original_file_name, audio_file)
 
             pcm_file = original_file_name + '.pcm'
             Transcoder.transcoder_.transcode_file(audio_file,

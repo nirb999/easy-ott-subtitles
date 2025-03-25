@@ -61,6 +61,8 @@ class OttHandler:
 
         self._session_id = session_id
         self._live = live
+        self._prev_dst_language = None
+        self._prev_captions_map = {}
 
     #################################
     # close
@@ -137,10 +139,14 @@ class OttHandler:
     #################################
     # _translate_caption_set
     #################################
-    def _translate_caption_set(self, caption_set: CaptionSet, src_language: EosLanguage, dst_language: EosLanguage):
+    def _translate_caption_set(self, caption_set: CaptionSet, next_caption_set: CaptionSet, src_language: EosLanguage, dst_language: EosLanguage):
 
         languages = caption_set.get_languages()
         captions = caption_set.get_captions(languages[0])
+
+        next_captions = None
+        if next_caption_set is not None:
+            next_captions = next_caption_set.get_captions(languages[0])
 
         sentence = ''
         sentence_parts = []
@@ -149,6 +155,13 @@ class OttHandler:
 
         print("\n **************************")
 
+        prev_captions_map = copy.deepcopy(self._prev_captions_map)
+        self._prev_captions_map = {}
+        src_captions = copy.deepcopy(captions)
+        src_next_captions = copy.deepcopy(next_captions)
+
+        first_fragment_captions_set = set()
+        
         caption_index = 0
         for caption in captions:  # for segment in parsed_webvtt:
             print("start: ", caption.start)
@@ -161,12 +174,14 @@ class OttHandler:
                 if caption_node.type_ == 1:
                     print("content: ", caption_node.content)
 
+                    first_fragment_captions_set.add(caption_node.content)
+
                     if sentence != '':
                         sentence += ' '
                     sentence += caption_node.content
-                    sentence_parts.append({'caption_index': caption_index, 'caption_node_index': caption_node_index, 'words': len(caption_node.content.split())})
+                    sentence_parts.append({'fragment_index': 1, 'caption_index': caption_index, 'caption_node_index': caption_node_index, 'words': len(caption_node.content.split())})
 
-                if sentence.endswith('.') or sentence.endswith(',') or sentence.endswith(':') or sentence.endswith('?') or sentence.endswith('!') or sentence.endswith(';'):
+                if sentence.endswith('.') or sentence.endswith(',') or sentence.endswith(':') or sentence.endswith('?') or sentence.endswith('!') or sentence.endswith(';') or sentence.endswith('-'):
                     # print("sentence: ", sentence)
                     # print("sentence_parts: ", sentence_parts)
 
@@ -182,8 +197,54 @@ class OttHandler:
         # handle sentence at the end of the fragment which is not ended
         # TODO: merge with next fragment
         if sentence != '' and len(sentence_parts) > 0:
-            completed_sentences.append(sentence)
-            completed_sentences_parts.append(sentence_parts)
+            print('%%%%%%%%%% open sentence')
+            if next_captions is not None:
+                stop = False
+                caption_index = 0
+                for caption in next_captions:
+                    if stop is True:
+                        print("1. stop!")
+                        break
+
+                    print("start: ", caption.start)
+                    print("end: ", caption.end)
+                    caption_nodes = caption.nodes
+                    caption_node_index = 0
+                    for caption_node in caption_nodes:  
+                        if caption_node.type_ == 1:
+                            print("content: ", caption_node.content)
+                            if(caption_node.content in first_fragment_captions_set):
+                                print("ignore this")
+                                continue
+
+                            if sentence != '':
+                                sentence += ' '
+                            sentence += caption_node.content
+                            sentence_parts.append({'fragment_index': 2, 'caption_index': caption_index, 'caption_node_index': caption_node_index, 'words': len(caption_node.content.split())})
+
+                        if sentence.endswith('.') or sentence.endswith(',') or sentence.endswith(':') or sentence.endswith('?') or sentence.endswith('!') or sentence.endswith(';') or sentence.endswith('-'):
+                            # print("sentence: ", sentence)
+                            # print("sentence_parts: ", sentence_parts)
+
+                            completed_sentences.append(sentence)
+                            completed_sentences_parts.append(sentence_parts)
+
+                            sentence = ''
+                            sentence_parts = []
+
+                            stop = True
+                            print("2. stop!")
+                            break
+
+                        caption_node_index += 1
+                    caption_index += 1
+                
+        # handle sentence at the end of the fragment which is not ended
+        # TODO: merge with next fragment
+        if sentence != '' and len(sentence_parts) > 0:
+                # no next fragment
+                completed_sentences.append(sentence)
+                completed_sentences_parts.append(sentence_parts)
 
         Utils.logger_.info(self._session_id, "OttHandler::_translate_caption_set using GCP translate {}->{}".format(src_language.code_bcp_47(), dst_language.code_bcp_47()))
 
@@ -221,10 +282,57 @@ class OttHandler:
 
                 #print("current_word_index={}, new_part_words={}, translation_words={}".format(current_word_index, new_part_words, translation_words))
 
-                captions[part['caption_index']].nodes[part['caption_node_index']].content = new_part_words
-                print("translation start: ", captions[part['caption_index']].start)
+                if part['fragment_index'] == 1:
+                    captions[part['caption_index']].nodes[part['caption_node_index']].content = new_part_words
+                    print("translation start: ", captions[part['caption_index']].start)
+
+                if part['fragment_index'] == 2:
+                    next_captions[part['caption_index']].nodes[part['caption_node_index']].content = new_part_words
+                    print("translation start: ", next_captions[part['caption_index']].start)
+
                 print("translation: ", new_part_words)
 
+        if self._prev_dst_language == dst_language:
+            print("prev_captions_map: ", prev_captions_map)
+            
+            caption_index = 0
+            for src_caption in src_captions:
+                src_caption_nodes = src_caption.nodes
+                src_caption_node_index = 0
+                for src_caption_node in src_caption_nodes:
+                    if src_caption_node.type_ == 1:
+                        if src_caption_node.content in prev_captions_map:
+                            print("!!!!!!!!!!!!!!!!! matched content: ", src_caption_node.content)
+                            print("@@@@@@@ prev:",prev_captions_map[src_caption_node.content])
+                            print("@@@@@@@ curr:", captions[caption_index].nodes[src_caption_node_index].content)
+                            if captions[caption_index].nodes[src_caption_node_index].content != prev_captions_map[src_caption_node.content]:
+                                print("$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$ fixed")
+                                captions[caption_index].nodes[src_caption_node_index].content = prev_captions_map[src_caption_node.content]
+
+                        self._prev_captions_map[src_caption_node.content] = captions[caption_index].nodes[src_caption_node_index].content
+                        print("insert 1: ", src_caption_node.content, ": ", captions[caption_index].nodes[src_caption_node_index].content)
+
+                    src_caption_node_index += 1
+                caption_index += 1
+
+            caption_index = 0
+            if src_next_captions is not None:
+                for src_caption in src_next_captions:
+                    src_caption_nodes = src_caption.nodes
+                    src_caption_node_index = 0
+                    for src_caption_node in src_caption_nodes:
+                        if src_caption_node.type_ == 1:
+                            if next_captions[caption_index].nodes[src_caption_node_index].content is None or next_captions[caption_index].nodes[src_caption_node_index].content == src_caption_node.content:
+                                continue
+
+                            self._prev_captions_map[src_caption_node.content] = next_captions[caption_index].nodes[src_caption_node_index].content
+                            print("insert 2: ", src_caption_node.content, ": ", next_captions[caption_index].nodes[src_caption_node_index].content)
+                            
+                        src_caption_node_index += 1
+                    caption_index += 1
+
+        self._prev_dst_language = dst_language
+        
         return caption_set
 
 
@@ -819,7 +927,7 @@ class HlsHandler(OttHandler, LiveDelayListener):
     #################################
     # translate_subtitle_fragment
     #################################
-    def translate_subtitle_fragment(self, src_fragment, src_language: EosLanguage, dst_language: EosLanguage):
+    def translate_subtitle_fragment(self, src_fragment, src_next_fragment, src_language: EosLanguage, dst_language: EosLanguage):
 
         # print("type(src_fragment): ", type(src_fragment))
         # print("src_fragment: ", src_fragment.decode('utf-8'))
@@ -852,7 +960,7 @@ class DashHandler(OttHandler):
     __mpd_namespace: Optional[str]
     __adaptation_sets: Dict[int, Dict[str, str]]  # [adaptation_set_id, [parameter, value]]
     __next_adaptation_set_id: int
-
+    _reference_manifests: Dict[str, EosManifest]   # dst_lang -> reference manifest
     _live_stream: Optional[DashLiveDelayHandler]
     _reference_audio_adaptation_set_id_: Optional[str]
 
@@ -868,7 +976,7 @@ class DashHandler(OttHandler):
         self.__mpd_namespace = None
         self.__adaptation_sets = {}
         self.__next_adaptation_set_id = 0
-
+        self._reference_manifests = {}
         self._live_stream = None
         self._reference_audio_adaptation_set_id_ = None
 
@@ -1003,26 +1111,151 @@ class DashHandler(OttHandler):
     def add_subtitle_stream(self, src_language: EosLanguage, dst_language: EosLanguage, default_lang: EosLanguage) -> None:
 
         # find audio with src_langauge
-        matched_audio = None
+        matched_audio_id = -1
         for adaptation_set_id in self.__adaptation_sets:
             if self.__adaptation_sets[adaptation_set_id]['content_type'] == 'audio':
                 if self.__adaptation_sets[adaptation_set_id]['language'] in src_language.codes():
-                    matched_audio = adaptation_set_id
+                    matched_audio_id = adaptation_set_id
                     break
 
-        if matched_audio is None:
+        if matched_audio_id == -1:
             Utils.logger_.warning(self._session_id, "DashHandler::add_subtitle_stream can't find audio stream for language {}".format(src_language.code_bcp_47()))
             return
 
-        self._reference_audio_adaptation_set_id_ = matched_audio
-        Utils.logger_.info_y(self._session_id, "DashHandler::add_subtitle_stream matched_audio={}".format(matched_audio))
-        self._live_stream.set_reference_stream(self._reference_audio_adaptation_set_id_, self.__next_adaptation_set_id, dst_language, default_lang)
+        self._reference_audio_adaptation_set_id_ = matched_audio_id
+        Utils.logger_.info_y(self._session_id, "DashHandler::add_subtitle_stream matched_audio_id={}".format(matched_audio_id))
+        #if self._live is True:
+        #    self._live_stream.set_reference_stream(self._reference_audio_adaptation_set_id_, self.__next_adaptation_set_id, dst_language, default_lang)
+        #self.__next_adaptation_set_id += 1
+        #return
+
+        # create new adaptation set for the dst_language
+        adaptation_set = mpegdash.nodes.AdaptationSet()
+        adaptation_set.id = self.__next_adaptation_set_id
         self.__next_adaptation_set_id += 1
+        adaptation_set.group = 8
+        adaptation_set.bitstream_switching = True
+        adaptation_set.segment_alignment = True
+        adaptation_set.content_type = "text"
+        #adaptation_set.codecs = "stpp"
+        adaptation_set.mime_type = "application/mp4"
+        #adaptation_set.start_with_sap = 1
+        adaptation_set.lang = dst_language.code_639_2()
+
+        role = mpegdash.nodes.Descriptor()
+        role.scheme_id_uri = "urn:mpeg:dash:role:2011"
+        role.value = "subtitle"
+        adaptation_set.roles = [role]
+
+        representation = mpegdash.nodes.Representation()
+        representation.id = "dxFknw.." + dst_language.code_639_1()
+        representation.bandwidth = 100
+        representation.codecs = "stpp"
+        adaptation_set.representations = [representation]
+
+        segment_template = mpegdash.nodes.SegmentTemplate()
+        segment_template.timescale = 10000000
+        segment_template.presentation_time_offset = 0
+        segment_template.media = "{}/{}/{}/{}".format(EosNames.eos_manifest_prefix, dst_language.code_bcp_47(), EosNames.fragment_dash_prefix, self.__adaptation_sets[matched_audio_id]['media'])
+        segment_template.initialization = "{}/{}/{}/{}".format(EosNames.eos_manifest_prefix, dst_language.code_bcp_47(), EosNames.fragment_dash_prefix, self.__adaptation_sets[matched_audio_id]['initialization'])
+
+        segment_timeline = mpegdash.nodes.SegmentTimeline()
+        s = mpegdash.nodes.S()
+        s.d = 40000000
+        s.r = int(self.__adaptation_sets[matched_audio_id]['total_duration'] / 4)
+        segment_timeline.Ss = [s]
+
+        segment_template.segment_timelines = [segment_timeline]
+        adaptation_set.segment_templates = [segment_template]
+
+        self.__mpd.periods[0].adaptation_sets.append(adaptation_set)
+
+
+        ref_manifest = EosManifest()
+
+        period = self.__mpd.periods[0]
+        for adaptation_set in period.adaptation_sets:
+            adaptation_set_id = adaptation_set.id
+            if int(adaptation_set_id) == matched_audio_id:
+
+                #new_adaptation_set = copy.deepcopy(adaptation_set)
+
+                #new_adaptation_set.id = self.__next_adaptation_set_id
+                #self.__next_adaptation_set_id += 1
+                #new_adaptation_set.lang = dst_language.code_639_2()
+                #new_adaptation_set.group = 8
+                #new_adaptation_set.bitstream_switching = True
+                #new_adaptation_set.segment_alignment = True
+                #new_adaptation_set.content_type = "text"
+                #new_adaptation_set.mime_type = "application/mp4"
+                #new_adaptation_set.audio_channel_configurations = None
+
+                #role = mpegdash.nodes.Descriptor()
+                #role.scheme_id_uri = "urn:mpeg:dash:role:2011"
+                #role.value = "subtitle"
+                #new_adaptation_set.roles = [role]
+
+                segment_template = adaptation_set.segment_templates[0]
+                media = segment_template.media
+                timescale = segment_template.timescale
+                #segment_template.media = "{}/{}/{}/{}".format(EosNames.eos_manifest_prefix, dst_language.code_bcp_47(), EosNames.fragment_dash_prefix, self.__adaptation_sets[matched_audio_id]['media'])
+                #segment_template.initialization = "{}/{}/{}/{}".format(EosNames.eos_manifest_prefix, dst_language.code_bcp_47(), EosNames.fragment_dash_prefix, self.__adaptation_sets[matched_audio_id]['initialization'])
+
+                representation = adaptation_set.representations[0]
+                #representation.codecs = "stpp"
+                representation_id = representation.id
+                #representation.id = "dxFknw.." + dst_language.code_639_1()
+                bandwidth = representation.bandwidth
+                #representation.bandwidth = 100
+                audio_sampling_rate = representation.audio_sampling_rate
+                #representation.audio_sampling_rate = None
+
+                #self.__mpd.periods[0].adaptation_sets.append(new_adaptation_set)
+
+
+                segment_timeline = segment_template.segment_timelines[0]
+                current_timestamp: int = 0
+                for s in segment_timeline.Ss:
+                    duration: int = 0
+                    repeat: int = 1
+
+                    if s.t is not None:
+                        current_timestamp = s.t
+
+                    if s.d is not None:
+                        duration = float(s.d)
+                        # next_timestamp = current_timestamp + duration
+
+                    if s.r is not None:
+                        repeat = s.r + 1
+
+                    for x in range(repeat):
+                        new_media = media
+                        new_media = new_media.replace('$Bandwidth$', str(bandwidth))
+                        new_media = new_media.replace('$Time$', str(current_timestamp))
+                        new_media = new_media.replace('$RepresentationID$', representation_id)
+
+                        new_fragment = EosFragment()
+                        new_fragment.url.set_url(new_media, self.__variant_manifest_url)
+                        new_fragment.sampling_rate = int(audio_sampling_rate)
+                        new_fragment.timestamp = current_timestamp
+                        new_fragment.duration = (duration / timescale)
+                        #new_fragment.start_time = self.__streams[stream_key].current_time
+                        #new_fragment.first_read = self.__first_manifest_read
+
+                        #print("new_fragment: ", new_fragment)
+                        if self._live is False:
+                            ref_manifest.fragments.append(new_fragment)
+
+                        current_timestamp += int(duration)
+                break
+
+        self._reference_manifests[dst_language.code_bcp_47()] = ref_manifest
 
         return
-
         adaptation_set = mpegdash.nodes.AdaptationSet()
-        adaptation_set.id = str(self.get_next_adaptation_set_id())
+        adaptation_set.id = str(self.__next_adaptation_set_id)
+        self.__next_adaptation_set_id += 1
         adaptation_set.group = 8
         adaptation_set.bitstream_switching = True
         adaptation_set.segment_alignment = True
@@ -1044,8 +1277,11 @@ class DashHandler(OttHandler):
 
         segment_template = mpegdash.nodes.SegmentTemplate()
         segment_template.timescale = 10000000
-        segment_template.media = "{}/Fragments(en_0=$Time$)".format(EosNames.fragment_dash_prefix)
-        segment_template.initialization = "{}/Fragments(en_0=Init)".format(EosNames.fragment_dash_prefix)
+        #segment_template.media = "{}/Fragments(en_0=$Time$)".format(EosNames.fragment_dash_prefix)
+        #segment_template.initialization = "{}/Fragments(en_0=Init)".format(EosNames.fragment_dash_prefix)
+        segment_template.media = "{}/{}/{}/{}".format(EosNames.eos_manifest_prefix, dst_language.code_bcp_47(), EosNames.fragment_dash_prefix, self.__adaptation_sets[matched_audio]['media'])
+        segment_template.initialization = "{}/{}/{}/{}".format(EosNames.eos_manifest_prefix, dst_language.code_bcp_47(), EosNames.fragment_dash_prefix, self.__adaptation_sets[matched_audio]['initialization'])
+
 
         segment_timeline = mpegdash.nodes.SegmentTimeline()
 
@@ -1057,9 +1293,9 @@ class DashHandler(OttHandler):
 
         #segment_timeline = ET.SubElement(segment_template, 'SegmentTimeline')
 
-        #s = mpegdash.nodes.S()
-        #s.d = 40000000
-        #s.r = 764
+        s = mpegdash.nodes.S()
+        s.d = 40000000
+        s.r = 764
 
         #s = ET.SubElement(segment_timeline, 'S')
         #s.set('d', "40000000")
@@ -1105,7 +1341,8 @@ class DashHandler(OttHandler):
                 new_adaptation_set = copy.deepcopy(adaptation_set)
 
                 new_adaptation_set.id = self.__next_adaptation_set_id
-                new_adaptation_set.lang = dst_language.code_639_1()
+                self.__next_adaptation_set_id += 1
+                new_adaptation_set.lang = dst_language.code_639_2()
 
                 segment_template = new_adaptation_set.segment_templates[0]
                 segment_template.media = "{}/{}/{}/{}".format(EosNames.eos_manifest_prefix, dst_language.code_bcp_47(), EosNames.fragment_dash_prefix, self.__adaptation_sets[src_id]['media'])
@@ -1142,7 +1379,7 @@ class DashHandler(OttHandler):
     def generate_init_fragment(self) -> bytes:
 
         dash_encoder = DashFragmentEncoder()
-        init_fragment = dash_encoder.build_subtitles_initialization(1000)
+        init_fragment = dash_encoder.build_subtitles_initialization(10000000)
         return init_fragment
 
     #################################
@@ -1151,7 +1388,7 @@ class DashHandler(OttHandler):
     def pack_subtitle_fragment(self, start_time, end_time, subtitle_ttml) -> bytes:
 
         dash_encoder = DashFragmentEncoder()
-        subtitle_fragment = dash_encoder.build_subtitles_fragment(1000, start_time, end_time, subtitle_ttml)
+        subtitle_fragment = dash_encoder.build_subtitles_fragment(10000000, start_time, end_time, subtitle_ttml)
         return subtitle_fragment
 
     #################################
@@ -1188,12 +1425,12 @@ class DashHandler(OttHandler):
 
         if start_time is not None and end_time is not None:
 
-            presentation_time_offset_sec = self._live_stream.get_presentation_time_offset()
-            presentation_time_offset = presentation_time_offset_sec * 1000
+            presentation_time_offset_sec = 0#self._live_stream.get_presentation_time_offset()
+            presentation_time_offset = presentation_time_offset_sec * 10000000
             Utils.logger_.debug(self._session_id, "DashHandler::generate_subtitle_fragment presentation_time_offset={}".format(presentation_time_offset))
 
-            actual_start_time = int((start_time - presentation_time_offset) / 1000)
-            actual_end_time = int((end_time - presentation_time_offset) / 1000)
+            actual_start_time = int((start_time - presentation_time_offset) / 10000000)
+            actual_end_time = int((end_time - presentation_time_offset) / 10000000)
 
             Utils.logger_.info(self._session_id, "DashHandler::generate_subtitle_fragment actual_start_time={}, actual_end_time={}".format(actual_start_time, actual_end_time))
 
@@ -1245,14 +1482,18 @@ class DashHandler(OttHandler):
     #################################
     # translate_subtitle_fragment
     #################################
-    def translate_subtitle_fragment(self, src_fragment: bytes, src_language: EosLanguage, dst_language: EosLanguage):
+    def translate_subtitle_fragment(self, src_fragment: bytes, src_next_fragment: bytes, src_language: EosLanguage, dst_language: EosLanguage):
 
         # print("type(src_fragment): ", type(src_fragment))
         # print("src_fragment: ", src_fragment.decode('utf-8'))
 
         dash_parser = DashFragmentParser(src_fragment)
-
         ttml = dash_parser.read_ttml()
+
+        next_ttml = None
+        if src_next_fragment is not None:
+            next_dash_parser = DashFragmentParser(src_next_fragment)
+            next_ttml = next_dash_parser.read_ttml()
 
         # print("ttml: ", ttml.decode('utf-8'))
 
@@ -1261,8 +1502,18 @@ class DashHandler(OttHandler):
         except CaptionReadNoCaptions:
             Utils.logger_.error(self._session_id, "DashHandler::translate_subtitle_fragment error CaptionReadNoCaptions")
             return src_fragment
+        
+        next_caption_set = None
+        if next_ttml is not None:
+            try:
+                next_caption_set = DFXPReader().read(next_ttml.decode('utf-8'))
+            except CaptionReadNoCaptions:
+                Utils.logger_.error(self._session_id, "DashHandler::translate_subtitle_fragment error CaptionReadNoCaptions")
+                next_caption_set = None
 
-        caption_set = self._translate_caption_set(caption_set, src_language, dst_language)
+        Utils.logger_.debug_color(self._session_id, "DashHandler::translate_subtitle_fragment original caption_set={}".format(caption_set._captions))
+        caption_set = self._translate_caption_set(caption_set, next_caption_set, src_language, dst_language)
+        Utils.logger_.debug_color(self._session_id, "DashHandler::translate_subtitle_fragment translated caption_set={}".format(caption_set._captions))
         
         modified_ttml = DFXPWriter().write(caption_set)
         # print("modified_ttml: ", modified_ttml)

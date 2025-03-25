@@ -302,8 +302,8 @@ class EosSessionRequest:
     # dash_timestamp
     #################################
     def dash_timestamp(self) -> str:
-        if len(self.__tokens) >= 11:
-            return self.__tokens[10]
+        if len(self.__tokens) >= 13:
+            return self.__tokens[12]
         return ''
 
     #################################
@@ -421,6 +421,12 @@ class EosManagementRequest:
     def default_language(self) -> str:
         default_lang = ''
         return default_lang
+    
+    #################################
+    # dash_timestamp
+    #################################
+    def dash_timestamp(self) -> str:
+        return '=Init'
 
 
 ####################################################
